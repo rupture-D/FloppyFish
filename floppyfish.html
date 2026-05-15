@@ -22,6 +22,20 @@
         font-size: 24px;
         color: white;
     }
+    #homeBtn {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(255,255,255,0.25);
+        color: white;
+        border: 2px solid white;
+        border-radius: 8px;
+        padding: 6px 14px;
+        font-size: 16px;
+        cursor: pointer;
+        text-decoration: none;
+    }
+    #homeBtn:hover { background: rgba(255,255,255,0.4); }
 </style>
 </head>
 <body>
@@ -29,13 +43,16 @@
 <div id="scoreboard" style="display:none;">
     Score: <span id="score">0</span> | High Score: <span id="highScore">0</span>
 </div>
+<a id="homeBtn" href="index.html">🏠 Home</a>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// CONFIGURABLE VARIABLES
-const explosionChance = 0.01; // 1% chance per death
+const explosionChance = 0.01;
+const BASE_PIPE_SPEED = 3;
+const MAX_PIPE_SPEED = 7;
+const SPEED_INCREMENT = 0.3;
 
 const fish = {
     x: 80,
@@ -58,11 +75,9 @@ let gameStarted = false;
 let canRestart = false;
 let explosionTriggered = false;
 let explosionHandled = false;
-
-// Debug mode
+let pipeSpeed = BASE_PIPE_SPEED;
 let debug = false;
 
-// Bubble system
 const bubbles = [];
 for(let i=0; i<30; i++){
     bubbles.push({
@@ -73,42 +88,27 @@ for(let i=0; i<30; i++){
     });
 }
 
-// Explosion system
 let explosionParticles = [];
 let exploding = false;
+let speedMsgTimer = 0;
 
 function jump() {
-    if(!gameStarted){
-        startGame();
-    } else if(!gameOver){
-        fish.velocity = fish.lift;
-    } else if(canRestart){
-        resetGame();
-    }
+    if(!gameStarted){ startGame(); }
+    else if(!gameOver){ fish.velocity = fish.lift; }
+    else if(canRestart){ resetGame(); }
 }
 
-// Input
 document.addEventListener('keydown', e => {
-    if(e.code === 'Space' || e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp'){
-        jump();
-    }
-    if(e.code === 'KeyD') debug = !debug; // Toggle debug mode
+    if(e.code === 'Space' || e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') jump();
+    if(e.code === 'KeyD') debug = !debug;
 });
 canvas.addEventListener('mousedown', jump);
 
-// Create a new pipe
 function createPipe(){
     const topHeight = Math.floor(Math.random() * (canvas.height - pipeGap - 50)) + 25;
-    pipes.push({
-        x: canvas.width,
-        top: topHeight,
-        bottom: canvas.height - topHeight - pipeGap,
-        width: pipeWidth,
-        passed: false
-    });
+    pipes.push({ x: canvas.width, top: topHeight, bottom: canvas.height - topHeight - pipeGap, width: pipeWidth, passed: false });
 }
 
-// Draw bubbles
 function drawBubbles(){
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     bubbles.forEach(b => {
@@ -116,14 +116,10 @@ function drawBubbles(){
         ctx.arc(b.x, b.y, b.radius, 0, Math.PI*2);
         ctx.fill();
         b.y -= b.speed;
-        if(b.y + b.radius < 0){
-            b.y = canvas.height + b.radius;
-            b.x = Math.random() * canvas.width;
-        }
+        if(b.y + b.radius < 0){ b.y = canvas.height + b.radius; b.x = Math.random() * canvas.width; }
     });
 }
 
-// Draw static seaweed
 function drawSeaweed(){
     ctx.fillStyle = 'green';
     for(let i=0; i<canvas.width; i+=20){
@@ -137,7 +133,6 @@ function drawSeaweed(){
     }
 }
 
-// Draw fish (static tail)
 function drawFish(){
     let angle = Math.min(Math.max(fish.velocity * 0.1, -0.5), 0.5);
 
@@ -145,11 +140,13 @@ function drawFish(){
     ctx.translate(fish.x, fish.y);
     ctx.rotate(angle);
 
+    // Body
     ctx.fillStyle = 'orange';
     ctx.beginPath();
     ctx.ellipse(0, 0, fish.width/2, fish.height/2, 0, 0, Math.PI*2);
     ctx.fill();
 
+    // Static tail
     ctx.fillStyle = 'darkorange';
     ctx.beginPath();
     ctx.moveTo(-fish.width/2, 0);
@@ -158,6 +155,7 @@ function drawFish(){
     ctx.closePath();
     ctx.fill();
 
+    // Eye
     ctx.fillStyle = 'white';
     ctx.beginPath();
     ctx.arc(10, -5, 5, 0, Math.PI*2);
@@ -170,7 +168,6 @@ function drawFish(){
     ctx.restore();
 }
 
-// Draw pipes
 function drawPipes(){
     ctx.fillStyle = 'coral';
     pipes.forEach(pipe => {
@@ -179,25 +176,16 @@ function drawPipes(){
     });
 }
 
-// Explosion functions
 function triggerExplosion(x, y){
     explosionParticles = [];
-    exploding = true;          
+    exploding = true;
     explosionTriggered = true;
     canRestart = false;
     const colors = ['#ff4500','#ff8c00','#ffd700'];
     for(let i=0; i<80; i++){
-        const angle = Math.random() * 2 * Math.PI;
-        const speed = Math.random() * 10 + 3;
-        explosionParticles.push({
-            x: x,
-            y: y,
-            radius: Math.random()*6+4,
-            color: colors[Math.floor(Math.random()*colors.length)],
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
-            alpha: 1
-        });
+        const a = Math.random() * 2 * Math.PI;
+        const s = Math.random() * 10 + 3;
+        explosionParticles.push({ x, y, radius: Math.random()*6+4, color: colors[Math.floor(Math.random()*colors.length)], vx: Math.cos(a)*s, vy: Math.sin(a)*s, alpha: 1 });
     }
 }
 
@@ -206,36 +194,26 @@ function drawExplosion(){
     explosionParticles.forEach(p=>{
         ctx.beginPath();
         ctx.arc(p.x,p.y,p.radius,0,Math.PI*2);
-        ctx.fillStyle = p.color.replace(/[\d.]+\)$/ , p.alpha + ")");
+        ctx.fillStyle = p.color.replace(/[\d.]+\)$/, p.alpha+")");
         ctx.fill();
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.15;
-        p.alpha -= 0.02;
+        p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.alpha -= 0.02;
     });
     explosionParticles = explosionParticles.filter(p=>p.alpha>0);
-    if(explosionParticles.length===0){
-        exploding = false;
-        canRestart = true;
-        explosionTriggered = false;
-        explosionHandled = false;
-    }
+    if(explosionParticles.length===0){ exploding=false; canRestart=true; explosionTriggered=false; explosionHandled=false; }
 }
 
-// Circle collision helper
-function circleRectCollision(cx, cy, radius, rx, ry, rw, rh){
-    let closestX = Math.max(rx, Math.min(cx, rx + rw));
-    let closestY = Math.max(ry, Math.min(cy, ry + rh));
-    let dx = cx - closestX;
-    let dy = cy - closestY;
-    return (dx * dx + dy * dy) < (radius * radius);
+function circleRectCollision(cx,cy,radius,rx,ry,rw,rh){
+    let cx2=Math.max(rx,Math.min(cx,rx+rw)), cy2=Math.max(ry,Math.min(cy,ry+rh));
+    return (cx-cx2)**2+(cy-cy2)**2 < radius**2;
 }
 
-// Update game
+function updatePipeSpeed(){
+    pipeSpeed = Math.min(BASE_PIPE_SPEED + Math.floor(score/5)*SPEED_INCREMENT, MAX_PIPE_SPEED);
+}
+
 function update(){
     frame++;
     ctx.clearRect(0,0,canvas.width,canvas.height);
-
     drawBubbles();
     drawPipes();
     if(!exploding) drawFish();
@@ -245,121 +223,96 @@ function update(){
     if(!gameOver){
         fish.velocity += fish.gravity;
         fish.y += fish.velocity;
-
         const fishRadius = Math.max(fish.width, fish.height)/2 * 0.3;
 
-        // Floor/ceiling death
         if(fish.y + fishRadius > canvas.height || fish.y - fishRadius < 0){
             gameOver = true;
-            if(!explosionHandled && Math.random() < explosionChance){
-                triggerExplosion(fish.x, fish.y);
-                explosionHandled = true;
-            } else {
-                canRestart = true;
-            }
+            if(!explosionHandled && Math.random() < explosionChance){ triggerExplosion(fish.x, fish.y); explosionHandled=true; }
+            else { canRestart=true; }
         }
 
-        if(frame % 90 === 0){
-            createPipe();
-        }
+        if(frame % 90 === 0) createPipe();
+
         pipes.forEach(pipe => {
-            pipe.x -= 3;
-            
-            // Circle collision with top and bottom coral
-            if(circleRectCollision(fish.x, fish.y, fishRadius, pipe.x, 0, pipe.width, pipe.top) ||
-               circleRectCollision(fish.x, fish.y, fishRadius, pipe.x, canvas.height - pipe.bottom, pipe.width, pipe.bottom)){
-                gameOver = true;
-                if (!explosionHandled && Math.random() < explosionChance) {
-                    triggerExplosion(fish.x, fish.y);
-                    explosionHandled = true;
-                } else {
-                    canRestart = true;
-                }
+            pipe.x -= pipeSpeed;
+            if(circleRectCollision(fish.x,fish.y,fishRadius,pipe.x,0,pipe.width,pipe.top) ||
+               circleRectCollision(fish.x,fish.y,fishRadius,pipe.x,canvas.height-pipe.bottom,pipe.width,pipe.bottom)){
+                gameOver=true;
+                if(!explosionHandled && Math.random()<explosionChance){ triggerExplosion(fish.x,fish.y); explosionHandled=true; }
+                else { canRestart=true; }
             }
-
-            if(!pipe.passed && pipe.x + pipe.width < fish.x){
-                pipe.passed = true;
-                score++;
-                document.getElementById('score').innerText = score;
-                if(score > highScore){
-                    highScore = score;
-                    document.getElementById('highScore').innerText = highScore;
-                }
+            if(!pipe.passed && pipe.x+pipe.width < fish.x){
+                pipe.passed=true; score++;
+                document.getElementById('score').innerText=score;
+                if(score>highScore){ highScore=score; document.getElementById('highScore').innerText=highScore; }
+                updatePipeSpeed();
+                if(score%5===0 && pipeSpeed<MAX_PIPE_SPEED) speedMsgTimer=60;
             }
         });
-
-        while(pipes.length && pipes[0].x + pipeWidth < 0){
-            pipes.shift();
-        }
+        while(pipes.length && pipes[0].x+pipeWidth<0) pipes.shift();
     } else if(!explosionTriggered && canRestart){
-        ctx.fillStyle = 'white';
-        ctx.font = '36px sans-serif';
-        ctx.fillText('Game Over!', canvas.width/2 - 90, canvas.height/2);
-        ctx.font = '24px sans-serif';
-        ctx.fillText('Click, SPACE, W, or UP to Restart', canvas.width/2 - 180, canvas.height/2 + 40);
+        ctx.fillStyle='white';
+        ctx.font='36px sans-serif';
+        ctx.fillText('Game Over!', canvas.width/2-90, canvas.height/2);
+        ctx.font='24px sans-serif';
+        ctx.fillText('Click, SPACE, W, or UP to Restart', canvas.width/2-180, canvas.height/2+40);
     }
 
-    // ✅ Debug collision visuals
+    if(gameStarted && !gameOver){
+        const speedLevel = Math.min(Math.floor(score/5)+1, Math.ceil((MAX_PIPE_SPEED-BASE_PIPE_SPEED)/SPEED_INCREMENT)+1);
+        ctx.fillStyle='rgba(255,255,255,0.8)';
+        ctx.font='16px sans-serif';
+        ctx.fillText('Speed: '+speedLevel, canvas.width-100, 30);
+    }
+
+    if(speedMsgTimer>0){
+        ctx.save();
+        ctx.globalAlpha=Math.min(speedMsgTimer/30,1);
+        ctx.fillStyle='yellow';
+        ctx.font='bold 28px sans-serif';
+        ctx.fillText('Faster!', canvas.width/2-45, canvas.height/2-80);
+        ctx.restore();
+        speedMsgTimer--;
+    }
+
     if(debug){
-        const fishRadius = Math.max(fish.width, fish.height)/2 * 0.65;
-
-        // Fish collision circle
-        ctx.strokeStyle = 'red';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(fish.x, fish.y, fishRadius, 0, Math.PI*2);
-        ctx.stroke();
-
-        // Pipe collision boxes
-        ctx.strokeStyle = 'yellow';
-        pipes.forEach(pipe => {
-            ctx.strokeRect(pipe.x, 0, pipe.width, pipe.top);
-            ctx.strokeRect(pipe.x, canvas.height - pipe.bottom, pipe.width, pipe.bottom);
-        });
+        const fishRadius=Math.max(fish.width,fish.height)/2*0.65;
+        ctx.strokeStyle='red'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.arc(fish.x,fish.y,fishRadius,0,Math.PI*2); ctx.stroke();
+        ctx.strokeStyle='yellow';
+        pipes.forEach(pipe=>{ ctx.strokeRect(pipe.x,0,pipe.width,pipe.top); ctx.strokeRect(pipe.x,canvas.height-pipe.bottom,pipe.width,pipe.bottom); });
     }
 
     requestAnimationFrame(update);
 }
 
-// Start screen
 function drawStartScreen(){
     frame++;
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    drawBubbles();
-    drawSeaweed();
-    drawFish();
-
-    ctx.fillStyle = 'white';
-    ctx.font = '48px sans-serif';
-    ctx.fillText('Floppy Fish', canvas.width/2 - 120, canvas.height/2 - 50);
-    ctx.font = '24px sans-serif';
-    ctx.fillText('Click, SPACE, W, or UP to Start', canvas.width/2 - 150, canvas.height/2);
-    ctx.fillText('Avoid coral & swim through gaps!', canvas.width/2 - 160, canvas.height/2 + 40);
-
-    if(!gameStarted){
-        requestAnimationFrame(drawStartScreen);
-    }
+    drawBubbles(); drawSeaweed(); drawFish();
+    ctx.fillStyle='white';
+    ctx.font='48px sans-serif';
+    ctx.fillText('Floppy Fish', canvas.width/2-120, canvas.height/2-50);
+    ctx.font='24px sans-serif';
+    ctx.fillText('Click, SPACE, W, or UP to Start', canvas.width/2-150, canvas.height/2);
+    ctx.fillText('Avoid coral & swim through gaps!', canvas.width/2-160, canvas.height/2+40);
+    if(!gameStarted) requestAnimationFrame(drawStartScreen);
 }
 
 function startGame(){
-    gameStarted = true;
-    document.getElementById('scoreboard').style.display = "block";
+    gameStarted=true;
+    document.getElementById('scoreboard').style.display='block';
     update();
 }
 
 function resetGame(){
-    fish.y = canvas.height/2;
-    fish.velocity = 0;
-    pipes.length = 0;
-    score = 0;
-    frame = 0;
-    gameOver = false;
-    canRestart = false;
-    explosionParticles = [];
-    exploding = false;
-    explosionTriggered = false;
-    explosionHandled = false;
-    document.getElementById('score').innerText = score;
+    fish.y=canvas.height/2; fish.velocity=0;
+    pipes.length=0; score=0; frame=0;
+    gameOver=false; canRestart=false;
+    explosionParticles=[]; exploding=false;
+    explosionTriggered=false; explosionHandled=false;
+    pipeSpeed=BASE_PIPE_SPEED; speedMsgTimer=0;
+    document.getElementById('score').innerText=0;
 }
 
 drawStartScreen();
