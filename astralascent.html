@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Astral Ascent</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0015; font-family: sans-serif; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+  canvas { display: block; border: 2px solid rgba(180,100,255,0.3); box-shadow: 0 0 40px rgba(140,60,255,0.4); }
+  #ui { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 20px; align-items: center; pointer-events: none; }
+  .bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .bar-label { font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 1px; text-transform: uppercase; }
+  .bar-bg { width: 140px; height: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 5px; transition: width 0.15s; }
+  #hp-fill { background: linear-gradient(to right, #ff4466, #ff88aa); }
+  #mp-fill { background: linear-gradient(to right, #4488ff, #88ccff); }
+  #boss-hp-fill { background: linear-gradient(to right, #ff8800, #ffcc00); }
+  #score-display { color: #fff; font-size: 14px; font-weight: bold; }
+  #spells { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; pointer-events: none; }
+  .spell-icon { width: 44px; height: 44px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; font-size: 20px; background: rgba(0,0,0,0.5); position: relative; }
+  .spell-icon .key { position: absolute; bottom: 2px; right: 4px; font-size: 9px; color: rgba(255,255,255,0.5); }
+  .spell-icon.ready { border-color: rgba(180,100,255,0.8); box-shadow: 0 0 10px rgba(180,100,255,0.4); }
+  .spell-icon.cooling { opacity: 0.4; }
+  #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.75); color: white; text-align: center; gap: 16px; }
+  #overlay h1 { font-size: 42px; background: linear-gradient(135deg, #cc88ff, #8844ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  #overlay p { font-size: 16px; color: rgba(255,255,255,0.6); max-width: 340px; line-height: 1.6; }
+  #overlay button { padding: 12px 32px; font-size: 16px; background: linear-gradient(135deg, #8844ff, #cc44ff); border: none; border-radius: 8px; color: white; cursor: pointer; transition: transform 0.1s; }
+  #overlay button:hover { transform: scale(1.05); }
+  #overlay .controls { font-size: 13px; color: rgba(255,255,255,0.4); line-height: 1.8; }
+  #boss-bar { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 4px; }
+  #boss-name { font-size: 13px; color: #ffcc44; letter-spacing: 2px; text-transform: uppercase; }
+  #boss-bar .bar-bg { width: 300px; height: 12px; }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div class="bar-wrap">
+    <div class="bar-label">HP</div>
+    <div class="bar-bg"><div class="bar-fill" id="hp-fill" style="width:100%"></div></div>
+  </div>
+  <div id="score-display">Score: 0</div>
+  <div class="bar-wrap">
+    <div class="bar-label">MP</div>
+    <div class="bar-bg"><div class="bar-fill" id="mp-fill" style="width:100%"></div></div>
+  </div>
+</div>
+
+<div id="boss-bar">
+  <div id="boss-name">Scorpio — The Venom King</div>
+  <div class="bar-bg"><div class="bar-fill" id="boss-hp-fill" style="width:100%"></div></div>
+</div>
+
+<canvas id="c" width="480" height="520"></canvas>
+
+<div id="spells">
+  <div class="spell-icon ready" id="s0">⚡<span class="key">J</span></div>
+  <div class="spell-icon ready" id="s1">🔥<span class="key">K</span></div>
+  <div class="spell-icon ready" id="s2">❄️<span class="key">L</span></div>
+</div>
+
+<div id="overlay">
+  <h1>✦ Astral Ascent ✦</h1>
+  <p>Escape the Garden. Defeat the Zodiac guardians. Collect spells and fight your way to freedom.</p>
+  <div class="controls">
+    Arrow Keys / WASD — Move & Jump (Double Jump)<br>
+    Left Click / Z / X — Basic Attack (aims at cursor, replenishes double jump on hit)<br>
+    S / Down Arrow (in air) — Heavy Fall (AOE slam on landing)<br>
+    J / K / L — Cast Spells
+  </div>
+  <button onclick="startGame()">Begin Run</button>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// ─── STATE ───────────────────────────────────────────────
+let state = 'menu'; // menu, playing, boss, dead, win
+let score = 0;
+let frameN = 0;
+let keys = {};
+let justPressed = {};
+let mouseX = 240, mouseY = 260, mouseClicked = false;
+canvas.addEventListener('mousemove', e => { const r=canvas.getBoundingClientRect(); mouseX=e.clientX-r.left; mouseY=e.clientY-r.top; });
+canvas.addEventListener('mousedown', e => { if(e.button===0) mouseClicked=true; });
+canvas.style.cursor = 'crosshair';
+
+document.addEventListener('keydown', e => {
+  if (!keys[e.code]) justPressed[e.code] = true;
+  keys[e.code] = true;
+  e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ─── PLAYER ──────────────────────────────────────────────
+const P = {
+  x: 80, y: 300, w: 28, h: 38,
+  vx: 0, vy: 0,
+  speed: 3.5, jumpPow: -11,
+  onGround: false, jumpsLeft: 2,
+  hp: 100, maxHp: 100,
+  mp: 100, maxMp: 100,
+  facing: 1,
+  attacking: 0, attackTimer: 0,
+  invincible: 0,
+  trail: [],
+  heavyFalling: false,
+};
+
+// ─── SPELLS ──────────────────────────────────────────────
+const SPELLS = [
+  { name: 'Thunder', emoji: '⚡', color: '#ffff44', cd: 180, timer: 0, mpCost: 20 },
+  { name: 'Inferno', emoji: '🔥', color: '#ff6622', cd: 240, timer: 0, mpCost: 30 },
+  { name: 'Blizzard', emoji: '❄️', color: '#88ddff', cd: 300, timer: 0, mpCost: 25 },
+];
+
+// ─── PLATFORMS ───────────────────────────────────────────
+let platforms = [];
+let enemies = [];
+let projectiles = []; // player shots
+let enemyProjectiles = [];
+let particles = [];
+let pickups = [];
+let boss = null;
+let bossPhase = 0;
+let bossAttackTimer = 0;
+let worldY = 0; // camera offset
+let roomsCleared = 0;
+
+function makePlatforms() {
+  platforms = [
+    { x: 0, y: H - 30, w: W, h: 30 }, // floor
+    { x: 60, y: H - 130, w: 120, h: 14 },
+    { x: 250, y: H - 180, w: 100, h: 14 },
+    { x: 130, y: H - 260, w: 90, h: 14 },
+    { x: 300, y: H - 320, w: 120, h: 14 },
+    { x: 50, y: H - 380, w: 100, h: 14 },
+    { x: 200, y: H - 430, w: 110, h: 14 },
+  ];
+}
+
+function makeEnemies() {
+  enemies = [
+    { x: 200, y: H-130-32, w:26,h:32, hp:40,maxHp:40, vx:-1, onGround:false, type:'walker', attackTimer:0, aggro:false },
+    { x: 340, y: H-180-32, w:26,h:32, hp:30,maxHp:30, vx:1,  onGround:false, type:'walker', attackTimer:0, aggro:false },
+    { x: 150, y: H-260-32, w:26,h:32, hp:50,maxHp:50, vx:-1, onGround:false, type:'shooter', attackTimer:60, aggro:false },
+    { x: 360, y: H-320-32, w:26,h:32, hp:35,maxHp:35, vx:1,  onGround:false, type:'walker', attackTimer:0, aggro:false },
+    { x: 100, y: H-380-32, w:26,h:32, hp:60,maxHp:60, vx:-1, onGround:false, type:'shooter', attackTimer:90, aggro:false },
+  ];
+}
+
+function makeBoss() {
+  boss = {
+    x: W/2 - 45, y: 60, w: 90, h: 90,
+    hp: 300, maxHp: 300,
+    vx: 2, vy: 0,
+    phase: 0,
+    attackTimer: 120,
+    enraged: false,
+  };
+  document.getElementById('boss-bar').style.display = 'flex';
+}
+
+function spawnParticle(x, y, color, count=6, speed=3) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = Math.random() * speed + 1;
+    particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, life: 1, color, size: Math.random()*5+2 });
+  }
+}
+
+function spawnPickup(x, y) {
+  if (Math.random() < 0.5) {
+    pickups.push({ x, y, type: Math.random()<0.6?'hp':'mp', vy: -2, life: 300 });
+  }
+}
+
+// ─── INIT ────────────────────────────────────────────────
+function startGame() {
+  document.getElementById('overlay').style.display = 'none';
+  Object.assign(P, { x:80, y:300, vx:0, vy:0, hp:100, mp:100, facing:1, attacking:0, invincible:0, trail:[], jumpsLeft:2, onGround:false, heavyFalling:false });
+  SPELLS.forEach(s => s.timer = 0);
+  score = 0; frameN = 0; roomsCleared = 0;
+  projectiles = []; enemyProjectiles = []; particles = []; pickups = [];
+  boss = null;
+  document.getElementById('boss-bar').style.display = 'none';
+  makePlatforms();
+  makeEnemies();
+  state = 'playing';
+  loop();
+}
+
+// ─── PHYSICS HELPERS ─────────────────────────────────────
+function rectOverlap(a, b) {
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+
+function resolvePlayerPlatforms() {
+  P.onGround = false;
+  for (const pl of platforms) {
+    if (P.x+P.w > pl.x && P.x < pl.x+pl.w) {
+      // landing on top
+      if (P.vy >= 0 && P.y+P.h <= pl.y+6 && P.y+P.h+P.vy >= pl.y) {
+        P.y = pl.y - P.h;
+        P.vy = 0;
+        P.onGround = true;
+        P.jumpsLeft = 2;
+      }
+    }
+  }
+  // floor
+  if (P.y + P.h > H) { P.y = H - P.h; P.vy = 0; P.onGround = true; P.jumpsLeft = 2; }
+  if (P.y < 0) { P.y = 0; P.vy = 0; }
+  if (P.x < 0) P.x = 0;
+  if (P.x + P.w > W) P.x = W - P.w;
+}
+
+function resolveEnemyPlatforms(e) {
+  e.onGround = false;
+  for (const pl of platforms) {
+    if (e.x+e.w > pl.x && e.x < pl.x+pl.w) {
+      if (e.vy >= 0 && e.y+e.h <= pl.y+6 && e.y+e.h+e.vy >= pl.y) {
+        e.y = pl.y - e.h;
+        e.vy = 0;
+        e.onGround = true;
+      }
+    }
+  }
+  if (e.y + e.h > H) { e.y = H - e.h; e.vy = 0; e.onGround = true; }
+}
+
+// ─── UPDATE ──────────────────────────────────────────────
+function update() {
+  frameN++;
+  const inBoss = state === 'boss';
+
+  // ── Player movement
+  let moveX = 0;
+  if (keys['ArrowLeft']  || keys['KeyA']) moveX = -1;
+  if (keys['ArrowRight'] || keys['KeyD']) moveX = 1;
+  if (moveX !== 0) P.facing = moveX;
+  P.vx = moveX * P.speed;
+  P.vy += 0.55; // gravity
+
+  // Jump
+  if ((justPressed['ArrowUp'] || justPressed['KeyW'] || justPressed['Space']) && P.jumpsLeft > 0) {
+    P.vy = P.jumpPow;
+    P.jumpsLeft--;
+    spawnParticle(P.x+P.w/2, P.y+P.h, '#aaaaff', 5, 2);
+  }
+
+  P.x += P.vx;
+  P.y += P.vy;
+  resolvePlayerPlatforms();
+
+  // ── Heavy fall: S/ArrowDown while airborne
+  if ((justPressed['KeyS'] || justPressed['ArrowDown']) && !P.onGround && !P.heavyFalling) {
+    P.heavyFalling = true;
+    P.vy = 18; // slam downward
+    spawnParticle(P.x+P.w/2, P.y+P.h/2, '#ff8800', 10, 3);
+  }
+  // Heavy fall landing — deal AOE damage and reset
+  if (P.heavyFalling && P.onGround) {
+    P.heavyFalling = false;
+    spawnParticle(P.x+P.w/2, P.y+P.h, '#ff6600', 20, 6);
+    const SLAM_RANGE = 60, SLAM_DMG = 35;
+    const inBossNow = state === 'boss';
+    if (!inBossNow) {
+      for (let i=enemies.length-1; i>=0; i--) {
+        const e = enemies[i];
+        if (Math.abs((e.x+e.w/2)-(P.x+P.w/2)) < SLAM_RANGE && Math.abs((e.y+e.h/2)-(P.y+P.h)) < SLAM_RANGE) {
+          e.hp -= SLAM_DMG;
+          spawnParticle(e.x+e.w/2, e.y+e.h/2, '#ff8800', 10);
+          if (e.hp <= 0) { spawnParticle(e.x+e.w/2, e.y+e.h/2, '#ff8844', 14); spawnPickup(e.x+e.w/2, e.y); score+=50; enemies.splice(i,1); }
+        }
+      }
+    }
+    if (inBossNow && boss && Math.abs((boss.x+boss.w/2)-(P.x+P.w/2)) < SLAM_RANGE+boss.w/2) {
+      boss.hp -= SLAM_DMG;
+      spawnParticle(boss.x+boss.w/2, boss.y+boss.h/2, '#ff8800', 12);
+      updateBossBar();
+      if (boss.hp <= 0) winGame();
+    }
+  }
+
+  // Trail
+  P.trail.unshift({ x: P.x+P.w/2, y: P.y+P.h/2 });
+  if (P.trail.length > 8) P.trail.pop();
+
+  // ── Basic attack (left click or Z/X) — aims toward mouse, replenishes double jump on hit
+  if ((mouseClicked || justPressed['KeyZ'] || justPressed['KeyX']) && P.attackTimer <= 0) {
+    P.attacking = 12;
+    P.attackTimer = 20;
+    const cx = P.x+P.w/2, cy = P.y+P.h/2;
+    const dx = mouseX-cx, dy = mouseY-cy;
+    const dist = Math.sqrt(dx*dx+dy*dy)||1;
+    if (dx !== 0) P.facing = dx > 0 ? 1 : -1;
+    projectiles.push({ x:cx, y:cy, w:16, h:8, vx:dx/dist*10, vy:dy/dist*10, damage:12, life:45, color:'#cc88ff', hitsEnemy: false });
+    P.mp = Math.min(P.maxMp, P.mp + 5);
+  }
+  mouseClicked = false;
+  if (P.attackTimer > 0) P.attackTimer--;
+  if (P.attacking > 0) P.attacking--;
+  if (P.invincible > 0) P.invincible--;
+
+  // ── MP regen
+  if (frameN % 60 === 0) P.mp = Math.min(P.maxMp, P.mp + 3);
+
+  // ── Spells
+  const spellKeys = ['KeyJ','KeyK','KeyL'];
+  SPELLS.forEach((sp, i) => {
+    if (sp.timer > 0) sp.timer--;
+    if (justPressed[spellKeys[i]] && sp.timer === 0 && P.mp >= sp.mpCost) {
+      P.mp -= sp.mpCost;
+      sp.timer = sp.cd;
+      castSpell(i);
+    }
+    const el = document.getElementById('s'+i);
+    el.className = 'spell-icon ' + (sp.timer === 0 ? 'ready' : 'cooling');
+  });
+
+  // ── Update projectiles
+  projectiles = projectiles.filter(b => {
+    b.x += b.vx; b.life--;
+    if (b.life <= 0) return false;
+    if (b.x < 0 || b.x > W) return false;
+    // hit enemies
+    if (!inBoss) {
+      for (let i = enemies.length-1; i >= 0; i--) {
+        const e = enemies[i];
+        if (rectOverlap(b, e)) {
+          e.hp -= b.damage;
+          spawnParticle(e.x+e.w/2, e.y+e.h/2, b.color, 8);
+          // Replenish double jump on hit
+          if (P.jumpsLeft < 1) P.jumpsLeft = 1;
+          spawnParticle(P.x+P.w/2, P.y+P.h, '#aaaaff', 4, 2);
+          if (e.hp <= 0) {
+            spawnParticle(e.x+e.w/2, e.y+e.h/2, '#ff8844', 14);
+            spawnPickup(e.x+e.w/2, e.y);
+            score += 50;
+            enemies.splice(i, 1);
+          }
+          return false;
+        }
+      }
+    }
+    // hit boss
+    if (inBoss && boss) {
+      if (rectOverlap(b, boss)) {
+        boss.hp -= b.damage;
+        spawnParticle(boss.x+boss.w/2, boss.y+boss.h/2, b.color, 6);
+        if (P.jumpsLeft < 1) P.jumpsLeft = 1;
+        updateBossBar();
+        if (boss.hp <= 0) { winGame(); }
+        if (boss.hp < boss.maxHp * 0.4 && !boss.enraged) {
+          boss.enraged = true;
+          boss.vx *= 1.6;
+          spawnParticle(boss.x+boss.w/2, boss.y+boss.h/2, '#ff4400', 20, 5);
+        }
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // ── Enemy projectiles
+  enemyProjectiles = enemyProjectiles.filter(b => {
+    b.x += b.vx; b.y += b.vy; b.life--;
+    if (b.life <= 0 || b.x < 0 || b.x > W || b.y > H) return false;
+    if (P.invincible === 0 && rectOverlap(b, P)) {
+      damagePlayer(b.damage);
+      spawnParticle(P.x+P.w/2, P.y+P.h/2, '#ff4466', 8);
+      return false;
+    }
+    return true;
+  });
+
+  // ── Enemies
+  if (!inBoss) {
+    enemies.forEach(e => {
+      const dx = P.x - e.x;
+      if (Math.abs(dx) < 300) e.aggro = true;
+      e.vy += 0.55;
+      if (e.aggro) {
+        if (e.type === 'walker') {
+          e.vx = dx > 0 ? 1.5 : -1.5;
+        }
+      }
+      e.x += e.vx;
+      e.y += e.vy;
+      resolveEnemyPlatforms(e);
+
+      // Edge bounce for walkers
+      if (e.onGround && e.type === 'walker') {
+        let onEdge = true;
+        for (const pl of platforms) {
+          if (e.x+e.w > pl.x && e.x < pl.x+pl.w && Math.abs(e.y+e.h - pl.y) < 4) { onEdge = false; break; }
+        }
+        if (e.y+e.h >= H-30) onEdge = false;
+        if (onEdge) e.vx *= -1;
+      }
+
+      // Shooter fires
+      if (e.type === 'shooter' && e.aggro) {
+        e.attackTimer--;
+        if (e.attackTimer <= 0) {
+          e.attackTimer = 90;
+          const dir = P.x > e.x ? 1 : -1;
+          enemyProjectiles.push({ x:e.x+e.w/2, y:e.y+e.h/2, vx:dir*4, vy:-1, w:10,h:10, damage:12, life:80, color:'#ff6622' });
+        }
+      }
+
+      // Touch damage
+      if (P.invincible === 0 && rectOverlap(P, e)) {
+        damagePlayer(8);
+        spawnParticle(P.x+P.w/2, P.y+P.h/2, '#ff4466', 8);
+      }
+    });
+
+    // Check if all enemies cleared
+    if (enemies.length === 0 && state === 'playing') {
+      roomsCleared++;
+      score += 200;
+      if (roomsCleared >= 1) {
+        state = 'boss';
+        makeBoss();
+        P.x = W/2 - P.w/2;
+        P.y = H - 200;
+        platforms = [{ x:0, y:H-30, w:W, h:30 }, { x:50, y:H-160, w:100, h:14 }, { x:330, y:H-160, w:100, h:14 }];
+        enemies = [];
+      }
+    }
+  }
+
+  // ── Boss
+  if (inBoss && boss) {
+    boss.vy += 0.3;
+    boss.x += boss.vx;
+    boss.y += boss.vy;
+
+    // Boss floor
+    if (boss.y + boss.h > H - 30) { boss.y = H - 30 - boss.h; boss.vy = boss.enraged ? -9 : -7; }
+    if (boss.x < 0) { boss.x = 0; boss.vx = Math.abs(boss.vx); }
+    if (boss.x + boss.w > W) { boss.x = W - boss.w; boss.vx = -Math.abs(boss.vx); }
+
+    // Boss attacks
+    bossAttackTimer--;
+    if (bossAttackTimer <= 0) {
+      bossAttackTimer = boss.enraged ? 60 : 90;
+      const pattern = Math.floor(Math.random() * 3);
+      if (pattern === 0) {
+        // Spread shot
+        [-1,0,1].forEach(d => {
+          enemyProjectiles.push({ x:boss.x+boss.w/2, y:boss.y+boss.h, vx:d*3, vy:4, w:12,h:12, damage:15, life:100, color:'#ff8800' });
+        });
+      } else if (pattern === 1) {
+        // Aimed
+        const dx = P.x - boss.x; const dy = P.y - boss.y;
+        const dist = Math.sqrt(dx*dx+dy*dy)||1;
+        const sp = 5;
+        enemyProjectiles.push({ x:boss.x+boss.w/2, y:boss.y+boss.h/2, vx:dx/dist*sp, vy:dy/dist*sp, w:14,h:14, damage:18, life:120, color:'#ffcc00' });
+      } else {
+        // Rain
+        for (let i=0;i<4;i++) {
+          enemyProjectiles.push({ x:Math.random()*W, y:0, vx:0, vy:5, w:10,h:16, damage:12, life:120, color:'#ff4488' });
+        }
+      }
+    }
+
+    // Boss touch
+    if (P.invincible === 0 && rectOverlap(P, boss)) {
+      damagePlayer(15);
+      spawnParticle(P.x+P.w/2, P.y+P.h/2, '#ff4466', 10);
+    }
+  }
+
+  // ── Pickups
+  pickups = pickups.filter(pk => {
+    pk.y += pk.vy; pk.vy += 0.3; pk.life--;
+    if (pk.y + 12 > H - 30) { pk.y = H - 30 - 12; pk.vy = 0; }
+    if (pk.life <= 0) return false;
+    if (rectOverlap({ x:pk.x-8, y:pk.y-8, w:16, h:16 }, P)) {
+      if (pk.type === 'hp') P.hp = Math.min(P.maxHp, P.hp + 25);
+      else P.mp = Math.min(P.maxMp, P.mp + 30);
+      spawnParticle(pk.x, pk.y, pk.type==='hp'?'#ff6688':'#4488ff', 8);
+      return false;
+    }
+    return true;
+  });
+
+  // ── Particles
+  particles = particles.filter(p => {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.life -= 0.04;
+    return p.life > 0;
+  });
+
+  // ── HUD
+  document.getElementById('hp-fill').style.width = (P.hp/P.maxHp*100)+'%';
+  document.getElementById('mp-fill').style.width = (P.mp/P.maxMp*100)+'%';
+  document.getElementById('score-display').textContent = 'Score: '+score;
+
+  justPressed = {};
+}
+
+function castSpell(i) {
+  if (i === 0) {
+    // Thunder — chain lightning bolts
+    for (let n=0; n<5; n++) {
+      setTimeout(() => {
+        projectiles.push({ x:P.x+(P.facing>0?P.w:0), y:P.y+P.h/2-4, vx:P.facing*12, damage:25, w:20,h:10, life:50, color:'#ffff44' });
+        spawnParticle(P.x+P.w/2, P.y+P.h/2, '#ffff88', 4, 2);
+      }, n*60);
+    }
+  } else if (i === 1) {
+    // Inferno — wide spread
+    [-0.3, 0, 0.3].forEach(angle => {
+      projectiles.push({ x:P.x+(P.facing>0?P.w:0), y:P.y+P.h/2, vx:P.facing*8*Math.cos(angle), vy:Math.sin(angle)*8, damage:30, w:18,h:12, life:45, color:'#ff6622' });
+    });
+    spawnParticle(P.x+P.w/2, P.y+P.h/2, '#ff8844', 16, 4);
+  } else if (i === 2) {
+    // Blizzard — slow homing
+    for (let n=0;n<8;n++) {
+      const a = (n/8)*Math.PI*2;
+      projectiles.push({ x:P.x+P.w/2, y:P.y+P.h/2, vx:Math.cos(a)*6, vy:Math.sin(a)*6, damage:20, w:12,h:12, life:60, color:'#88ddff' });
+    }
+    spawnParticle(P.x+P.w/2, P.y+P.h/2, '#aaeeff', 20, 5);
+  }
+}
+
+function damagePlayer(amt) {
+  if (P.invincible > 0) return;
+  P.hp = Math.max(0, P.hp - amt);
+  P.invincible = 60;
+  if (P.hp <= 0) dieGame();
+}
+
+function updateBossBar() {
+  document.getElementById('boss-hp-fill').style.width = Math.max(0,boss.hp/boss.maxHp*100)+'%';
+}
+
+function dieGame() {
+  state = 'dead';
+  const ov = document.getElementById('overlay');
+  ov.style.display = 'flex';
+  ov.innerHTML = `<h1>💀 Defeated</h1><p>You fell in the Garden.<br>Score: ${score}</p><button onclick="startGame()">Try Again</button>`;
+}
+
+function winGame() {
+  state = 'win';
+  score += 500;
+  const ov = document.getElementById('overlay');
+  ov.style.display = 'flex';
+  ov.innerHTML = `<h1>✦ Victory ✦</h1><p>Scorpio has been defeated!<br>You escaped the Garden.<br><br>Score: ${score}</p><button onclick="startGame()">New Run</button>`;
+  document.getElementById('boss-bar').style.display = 'none';
+}
+
+// ─── DRAW ─────────────────────────────────────────────────
+function draw() {
+  // Background
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0, '#120025');
+  bg.addColorStop(1, '#0a0018');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0,0,W,H);
+
+  // Stars
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  for (let i=0;i<40;i++) {
+    const sx = (i*137+frameN*0.1) % W;
+    const sy = (i*97) % (H*0.7);
+    const ss = Math.sin(frameN*0.05+i)*0.5+0.8;
+    ctx.beginPath();
+    ctx.arc(sx, sy, ss, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Platforms
+  platforms.forEach(pl => {
+    const grad = ctx.createLinearGradient(pl.x, pl.y, pl.x, pl.y+pl.h);
+    grad.addColorStop(0, pl.h > 20 ? '#2a1a4a' : '#6644aa');
+    grad.addColorStop(1, pl.h > 20 ? '#1a0a2a' : '#442288');
+    ctx.fillStyle = grad;
+    ctx.fillRect(pl.x, pl.y, pl.w, pl.h);
+    if (pl.h <= 20) {
+      ctx.fillStyle = 'rgba(180,100,255,0.5)';
+      ctx.fillRect(pl.x, pl.y, pl.w, 3);
+    }
+  });
+
+  // Particles
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size*p.life, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // Pickups
+  pickups.forEach(pk => {
+    ctx.fillStyle = pk.type==='hp'?'#ff6688':'#4488ff';
+    ctx.beginPath();
+    ctx.arc(pk.x, pk.y, 7+Math.sin(frameN*0.1)*2, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = 'white';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(pk.type==='hp'?'♥':'✦', pk.x, pk.y+3);
+  });
+
+  // Player trail
+  P.trail.forEach((t, i) => {
+    ctx.globalAlpha = (1-i/P.trail.length)*0.3;
+    ctx.fillStyle = P.heavyFalling ? '#ff6600' : '#aa66ff';
+    ctx.fillRect(t.x-P.w/2*0.7, t.y-P.h/2*0.7, P.w*0.7, P.h*0.7);
+  });
+  ctx.globalAlpha = 1;
+
+  // Player
+  const flash = P.invincible > 0 && Math.floor(frameN/4)%2===0;
+  if (!flash) {
+    // Body
+    ctx.fillStyle = '#8855dd';
+    ctx.fillRect(P.x, P.y, P.w, P.h);
+    // Cape
+    ctx.fillStyle = '#cc44ff';
+    ctx.beginPath();
+    if (P.facing > 0) {
+      ctx.moveTo(P.x, P.y+8);
+      ctx.lineTo(P.x-10, P.y+P.h*0.7);
+      ctx.lineTo(P.x, P.y+P.h*0.5);
+    } else {
+      ctx.moveTo(P.x+P.w, P.y+8);
+      ctx.lineTo(P.x+P.w+10, P.y+P.h*0.7);
+      ctx.lineTo(P.x+P.w, P.y+P.h*0.5);
+    }
+    ctx.fill();
+    // Face
+    ctx.fillStyle = '#ffccaa';
+    ctx.fillRect(P.x+4, P.y+4, P.w-8, 14);
+    // Eyes
+    ctx.fillStyle = '#220044';
+    const ex = P.facing>0 ? P.x+P.w-10 : P.x+6;
+    ctx.fillRect(ex, P.y+8, 5, 4);
+    // Glow when attacking
+    if (P.attacking > 0) {
+      ctx.shadowColor = '#cc88ff';
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = 'rgba(200,100,255,0.3)';
+      ctx.fillRect(P.x-4, P.y-4, P.w+8, P.h+8);
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // Enemies
+  enemies.forEach(e => {
+    ctx.fillStyle = e.type==='shooter'?'#cc4422':'#884400';
+    ctx.fillRect(e.x, e.y, e.w, e.h);
+    ctx.fillStyle = '#ffaa44';
+    ctx.fillRect(e.x+4, e.y+4, e.w-8, 10);
+    ctx.fillStyle = '#220000';
+    ctx.fillRect(e.x+6, e.y+7, 4, 4);
+    ctx.fillRect(e.x+e.w-10, e.y+7, 4, 4);
+    // HP bar
+    ctx.fillStyle = '#333';
+    ctx.fillRect(e.x, e.y-8, e.w, 4);
+    ctx.fillStyle = '#ff4444';
+    ctx.fillRect(e.x, e.y-8, e.w*(e.hp/e.maxHp), 4);
+  });
+
+  // Boss
+  if (boss) {
+    const pulse = Math.sin(frameN*0.1)*4;
+    ctx.shadowColor = boss.enraged ? '#ff4400' : '#ff8800';
+    ctx.shadowBlur = 20 + pulse;
+    ctx.fillStyle = boss.enraged ? '#cc3300' : '#aa5500';
+    ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+    // Horns
+    ctx.fillStyle = '#ffaa00';
+    ctx.beginPath();
+    ctx.moveTo(boss.x+20, boss.y);
+    ctx.lineTo(boss.x+10, boss.y-20);
+    ctx.lineTo(boss.x+30, boss.y-5);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(boss.x+boss.w-20, boss.y);
+    ctx.lineTo(boss.x+boss.w-10, boss.y-20);
+    ctx.lineTo(boss.x+boss.w-30, boss.y-5);
+    ctx.fill();
+    // Face
+    ctx.fillStyle = '#ffddaa';
+    ctx.fillRect(boss.x+10, boss.y+15, boss.w-20, 30);
+    ctx.fillStyle = boss.enraged?'#ff0000':'#440000';
+    ctx.fillRect(boss.x+18, boss.y+22, 12, 8);
+    ctx.fillRect(boss.x+boss.w-30, boss.y+22, 12, 8);
+    // Stinger tail
+    ctx.fillStyle = '#ffaa00';
+    ctx.beginPath();
+    ctx.moveTo(boss.x+boss.w/2, boss.y+boss.h);
+    ctx.lineTo(boss.x+boss.w/2-10, boss.y+boss.h+20);
+    ctx.lineTo(boss.x+boss.w/2+10, boss.y+boss.h+20);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // Projectiles (player)
+  projectiles.forEach(b => {
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = b.color;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.shadowBlur = 0;
+  });
+
+  // Enemy projectiles
+  enemyProjectiles.forEach(b => {
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = b.color;
+    ctx.beginPath();
+    ctx.arc(b.x+b.w/2, b.y+b.h/2, b.w/2, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  });
+
+  // Boss fight intro text
+  if (state === 'boss' && frameN < 120) {
+    ctx.globalAlpha = Math.min(1, (120-frameN)/60);
+    ctx.fillStyle = '#ffcc44';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠ ZODIAC BOSS ⚠', W/2, H/2-20);
+    ctx.font = '18px sans-serif';
+    ctx.fillText('Scorpio — The Venom King', W/2, H/2+14);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.textAlign = 'left';
+}
+
+// ─── LOOP ────────────────────────────────────────────────
+let running = false;
+function loop() {
+  if (state === 'dead' || state === 'win' || state === 'menu') { running = false; return; }
+  running = true;
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
