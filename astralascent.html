@@ -120,7 +120,8 @@ const SPELLS = [
 // ─── PLATFORMS ───────────────────────────────────────────
 let platforms = [];
 let enemies = [];
-let projectiles = []; // player shots
+let projectiles = []; // spell projectiles only
+let slashEffects = [];
 let enemyProjectiles = [];
 let particles = [];
 let pickups = [];
@@ -184,7 +185,7 @@ function startGame() {
   Object.assign(P, { x:80, y:300, vx:0, vy:0, hp:100, mp:100, facing:1, attacking:0, invincible:0, trail:[], jumpsLeft:2, onGround:false, heavyFalling:false });
   SPELLS.forEach(s => s.timer = 0);
   score = 0; frameN = 0; roomsCleared = 0;
-  projectiles = []; enemyProjectiles = []; particles = []; pickups = [];
+  projectiles = []; enemyProjectiles = []; particles = []; pickups = []; slashEffects = [];
   boss = null;
   document.getElementById('boss-bar').style.display = 'none';
   makePlatforms();
@@ -290,16 +291,49 @@ function update() {
   P.trail.unshift({ x: P.x+P.w/2, y: P.y+P.h/2 });
   if (P.trail.length > 8) P.trail.pop();
 
-  // ── Basic attack (left click or Z/X) — aims toward mouse, replenishes double jump on hit
+  // ── Basic attack — instant melee slash toward mouse
   if ((mouseClicked || justPressed['KeyZ'] || justPressed['KeyX']) && P.attackTimer <= 0) {
-    P.attacking = 12;
-    P.attackTimer = 20;
+    P.attacking = 14;
+    P.attackTimer = 22;
     const cx = P.x+P.w/2, cy = P.y+P.h/2;
     const dx = mouseX-cx, dy = mouseY-cy;
     const dist = Math.sqrt(dx*dx+dy*dy)||1;
     if (dx !== 0) P.facing = dx > 0 ? 1 : -1;
-    projectiles.push({ x:cx, y:cy, w:16, h:8, vx:dx/dist*10, vy:dy/dist*10, damage:12, life:45, color:'#cc88ff', hitsEnemy: false });
+    // Direction of slash
+    const slashDirX = dx/dist, slashDirY = dy/dist;
+    const SLASH_REACH = 52, SLASH_W = 40;
+    // Build hitbox centered in front of player in mouse direction
+    const hx = cx + slashDirX*SLASH_REACH - SLASH_W/2;
+    const hy = cy + slashDirY*SLASH_REACH - SLASH_W/2;
+    const hitbox = { x:hx, y:hy, w:SLASH_W, h:SLASH_W };
+    // Spawn slash visual
+    slashEffects.push({ x:cx, y:cy, dirX:slashDirX, dirY:slashDirY, life:10, maxLife:10 });
     P.mp = Math.min(P.maxMp, P.mp + 5);
+    // Instant hit check — enemies
+    if (!inBoss) {
+      for (let i=enemies.length-1; i>=0; i--) {
+        const e = enemies[i];
+        if (rectOverlap(hitbox, e)) {
+          e.hp -= 18;
+          spawnParticle(e.x+e.w/2, e.y+e.h/2, '#cc88ff', 10, 3);
+          if (P.jumpsLeft < 1) P.jumpsLeft = 1;
+          spawnParticle(P.x+P.w/2, P.y+P.h, '#aaaaff', 4, 2);
+          if (e.hp <= 0) { spawnParticle(e.x+e.w/2, e.y+e.h/2, '#ff8844', 14); spawnPickup(e.x+e.w/2, e.y); score+=50; enemies.splice(i,1); }
+        }
+      }
+    }
+    // Instant hit check — boss
+    if (inBoss && boss && rectOverlap(hitbox, boss)) {
+      boss.hp -= 18;
+      spawnParticle(boss.x+boss.w/2, boss.y+boss.h/2, '#cc88ff', 8, 3);
+      if (P.jumpsLeft < 1) P.jumpsLeft = 1;
+      updateBossBar();
+      if (boss.hp <= 0) winGame();
+      if (boss.hp < boss.maxHp*0.4 && !boss.enraged) {
+        boss.enraged = true; boss.vx *= 1.6;
+        spawnParticle(boss.x+boss.w/2, boss.y+boss.h/2, '#ff4400', 20, 5);
+      }
+    }
   }
   mouseClicked = false;
   if (P.attackTimer > 0) P.attackTimer--;
@@ -322,11 +356,13 @@ function update() {
     el.className = 'spell-icon ' + (sp.timer === 0 ? 'ready' : 'cooling');
   });
 
-  // ── Update projectiles
+  // ── Slash effects tick
+  slashEffects = slashEffects.filter(s => { s.life--; return s.life > 0; });
+
+  // ── Spell projectiles (no longer basic attack bolts)
   projectiles = projectiles.filter(b => {
-    b.x += b.vx; b.life--;
-    if (b.life <= 0) return false;
-    if (b.x < 0 || b.x > W) return false;
+    b.x += b.vx; b.y += b.vy; b.life--;
+    if (b.life <= 0 || b.x < -20 || b.x > W+20 || b.y < -20 || b.y > H+20) return false;
     // hit enemies
     if (!inBoss) {
       for (let i = enemies.length-1; i >= 0; i--) {
@@ -334,34 +370,19 @@ function update() {
         if (rectOverlap(b, e)) {
           e.hp -= b.damage;
           spawnParticle(e.x+e.w/2, e.y+e.h/2, b.color, 8);
-          // Replenish double jump on hit
-          if (P.jumpsLeft < 1) P.jumpsLeft = 1;
-          spawnParticle(P.x+P.w/2, P.y+P.h, '#aaaaff', 4, 2);
-          if (e.hp <= 0) {
-            spawnParticle(e.x+e.w/2, e.y+e.h/2, '#ff8844', 14);
-            spawnPickup(e.x+e.w/2, e.y);
-            score += 50;
-            enemies.splice(i, 1);
-          }
+          if (e.hp <= 0) { spawnParticle(e.x+e.w/2, e.y+e.h/2, '#ff8844', 14); spawnPickup(e.x+e.w/2, e.y); score+=50; enemies.splice(i,1); }
           return false;
         }
       }
     }
     // hit boss
-    if (inBoss && boss) {
-      if (rectOverlap(b, boss)) {
-        boss.hp -= b.damage;
-        spawnParticle(boss.x+boss.w/2, boss.y+boss.h/2, b.color, 6);
-        if (P.jumpsLeft < 1) P.jumpsLeft = 1;
-        updateBossBar();
-        if (boss.hp <= 0) { winGame(); }
-        if (boss.hp < boss.maxHp * 0.4 && !boss.enraged) {
-          boss.enraged = true;
-          boss.vx *= 1.6;
-          spawnParticle(boss.x+boss.w/2, boss.y+boss.h/2, '#ff4400', 20, 5);
-        }
-        return false;
-      }
+    if (inBoss && boss && rectOverlap(b, boss)) {
+      boss.hp -= b.damage;
+      spawnParticle(boss.x+boss.w/2, boss.y+boss.h/2, b.color, 6);
+      updateBossBar();
+      if (boss.hp <= 0) { winGame(); return false; }
+      if (boss.hp < boss.maxHp*0.4 && !boss.enraged) { boss.enraged=true; boss.vx*=1.6; spawnParticle(boss.x+boss.w/2, boss.y+boss.h/2, '#ff4400', 20, 5); }
+      return false;
     }
     return true;
   });
@@ -707,12 +728,41 @@ function draw() {
     ctx.shadowBlur = 0;
   }
 
-  // Projectiles (player)
+  // Slash effects
+  slashEffects.forEach(s => {
+    const t = s.life / s.maxLife;
+    const reach = 55;
+    const angle = Math.atan2(s.dirY, s.dirX);
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(angle);
+    ctx.globalAlpha = t * 0.85;
+    ctx.strokeStyle = '#dd99ff';
+    ctx.lineWidth = 5 * t;
+    ctx.shadowColor = '#cc88ff';
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.arc(0, 0, reach, -0.6, 0.6);
+    ctx.stroke();
+    // Second inner arc
+    ctx.lineWidth = 3 * t;
+    ctx.strokeStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(0, 0, reach * 0.65, -0.45, 0.45);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  });
+
+  // Spell projectiles
   projectiles.forEach(b => {
     ctx.shadowColor = b.color;
     ctx.shadowBlur = 10;
     ctx.fillStyle = b.color;
-    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.beginPath();
+    ctx.arc(b.x + b.w/2, b.y + b.h/2, b.w/2, 0, Math.PI*2);
+    ctx.fill();
     ctx.shadowBlur = 0;
   });
 
