@@ -8,58 +8,32 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
         min-height: 100vh;
-        background: linear-gradient(135deg, #0a1628 0%, #0d2a4a 50%, #0a1628 100%);
+        background: #1a1a2e;
         font-family: sans-serif;
         color: white;
-        overflow-x: hidden;
-    }
-    .bg-bubble {
-        position: fixed;
-        border-radius: 50%;
-        background: rgba(255,255,255,0.04);
-        animation: floatUp linear infinite;
-        pointer-events: none;
-    }
-    @keyframes floatUp {
-        0% { transform: translateY(100vh) scale(0); opacity: 0; }
-        10% { opacity: 1; }
-        90% { opacity: 1; }
-        100% { transform: translateY(-120px) scale(1); opacity: 0; }
     }
     header { text-align: center; padding: 60px 20px 30px; }
-    header h1 { font-size: 52px; color: #00d4ff; letter-spacing: 2px; text-shadow: 0 0 30px rgba(0,212,255,0.4); }
+    header h1 { font-size: 52px; color: #fff; letter-spacing: 2px; }
     header p { font-size: 18px; color: rgba(255,255,255,0.5); margin-top: 10px; }
-    .divider { width: 80px; height: 3px; background: linear-gradient(to right, transparent, #00d4ff, transparent); margin: 20px auto 50px; border-radius: 2px; }
+    .divider { width: 80px; height: 3px; background: linear-gradient(to right, transparent, #fff, transparent); margin: 20px auto 50px; border-radius: 2px; }
     .games-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px; max-width: 900px; margin: 0 auto; padding: 0 24px 80px; }
-    .game-card { background: rgba(255,255,255,0.06); border: 1px solid rgba(0,212,255,0.3); border-radius: 16px; padding: 28px 24px; text-decoration: none; color: white; transition: transform 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.2s; display: block; position: relative; overflow: hidden; }
-    .game-card::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(0,212,255,0.08), transparent); opacity: 0; transition: opacity 0.2s; }
-    .game-card:hover { transform: translateY(-6px); background: rgba(255,255,255,0.1); border-color: rgba(0,212,255,0.7); box-shadow: 0 12px 40px rgba(0,212,255,0.2); }
-    .game-card:hover::before { opacity: 1; }
-    .game-card.coming-soon { border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); cursor: default; pointer-events: none; }
-    .game-card.coming-soon:hover { transform: none; box-shadow: none; }
+    .game-card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 16px; padding: 28px 24px; text-decoration: none; color: white; transition: transform 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.2s; display: block; }
+    .game-card:hover { transform: translateY(-6px); background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.4); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+    .game-card.coming-soon { border-color: rgba(255,255,255,0.07); background: rgba(255,255,255,0.02); cursor: default; pointer-events: none; }
     .card-emoji { font-size: 40px; margin-bottom: 14px; display: block; }
-    .card-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #00d4ff; }
-    .game-card.coming-soon .card-title { color: rgba(255,255,255,0.4); }
-    .card-desc { font-size: 14px; color: rgba(255,255,255,0.55); line-height: 1.5; }
-    .badge { display: inline-block; margin-top: 14px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
-    .badge-live { background: rgba(0,212,255,0.2); color: #00d4ff; border: 1px solid rgba(0,212,255,0.4); }
-    .badge-soon { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.35); border: 1px solid rgba(255,255,255,0.1); }
+    .card-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #fff; }
+    .game-card.coming-soon .card-title { color: rgba(255,255,255,0.3); }
+    .card-desc { font-size: 14px; color: rgba(255,255,255,0.5); line-height: 1.5; }
+    .badge { display: inline-block; margin-top: 14px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .badge-live { background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3); }
+    .badge-soon { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.3); border: 1px solid rgba(255,255,255,0.08); }
     footer { text-align: center; padding: 20px; color: rgba(255,255,255,0.2); font-size: 13px; }
 </style>
 </head>
 <body>
-<script>
-    for(let i=0;i<18;i++){
-        const b=document.createElement('div');
-        b.className='bg-bubble';
-        const size=Math.random()*80+20;
-        b.style.cssText=`width:${size}px;height:${size}px;left:${Math.random()*100}vw;animation-duration:${Math.random()*15+10}s;animation-delay:${Math.random()*15}s;`;
-        document.body.appendChild(b);
-    }
-</script>
 <header>
-    <h1>🎮 rupture-D's Games</h1>
-    <p>A collection of games made by rupture-D</p>
+    <h1>🎮 Unblocked Games</h1>
+    <p>Free games you can play anywhere</p>
     <div class="divider"></div>
 </header>
 <div class="games-grid">
@@ -100,6 +74,6 @@
         <span class="badge badge-soon">Coming Soon</span>
     </a>
 </div>
-<footer>rupture-D © 2025</footer>
+<footer>Unblocked Games</footer>
 </body>
 </html>
